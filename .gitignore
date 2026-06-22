@@ -18,10 +18,11 @@ env/
 # Testing / coverage
 .pytest_cache/
 .coverage
+.coverage.*
 htmlcov/
 .ruff_cache/
 
-# Heavy model outputs (not committed — stored as GitHub release assets or LFS)
+# Heavy pickle — store as GitHub release asset if needed
 outputs/cv_result.pkl
 
 # IDE
@@ -32,19 +33,15 @@ outputs/cv_result.pkl
 .DS_Store
 Thumbs.db
 
-# Claude
+# Claude internal
 .claude/
 
 # Secrets / env
 .env
 *.env
 
-# Large data files in root (canonical copies live in data/raw/)
-# data/raw/*.csv and data/raw/*.xlsx ARE committed (small enough)
-
 # Jupyter checkpoints
 .ipynb_checkpoints/
 
 # pyproject build artifacts
-*.egg-info/
 src/*.egg-info/
