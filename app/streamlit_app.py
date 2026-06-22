@@ -11,8 +11,13 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-# Add repo root to path so both `forecasting` and `app` imports work
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# Ensure repo root and src/ are on the path (works locally and on Streamlit Cloud)
+_root = Path(__file__).parent.parent
+_src = _root / "src"
+for _p in (_root, _src):
+    _s = str(_p)
+    if _s not in sys.path:
+        sys.path.insert(0, _s)
 
 import streamlit as st
 

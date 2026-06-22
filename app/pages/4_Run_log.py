@@ -12,7 +12,12 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+_root = Path(__file__).parent.parent.parent
+_src = _root / "src"
+for _p in (_root, _src):
+    _s = str(_p)
+    if _s not in sys.path:
+        sys.path.insert(0, _s)
 
 import pandas as pd
 import plotly.graph_objects as go
