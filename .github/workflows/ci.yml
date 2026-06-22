@@ -1,0 +1,66 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      KMP_DUPLICATE_LIB_OK: "TRUE"
+      PYTHONPATH: src:.
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Ruff lint
+        run: python -m ruff check src/ tests/ configs/
+
+      - name: Ruff format check
+        run: python -m ruff format --check src/ tests/ configs/
+
+      - name: Pytest (coverage ≥70%)
+        run: |
+          python -m pytest tests/ \
+            --no-header \
+            --tb=short \
+            --cov=src/forecasting \
+            --cov-fail-under=70 \
+            -q
+
+      - name: Scope + relabel smoke test
+        run: |
+          python - <<'EOF'
+          import warnings; warnings.filterwarnings('ignore')
+          from forecasting.io import load_all
+          from forecasting import config
+          import pandas as pd
+
+          d = load_all()
+          # Scope assertions
+          assert len(d.sku_has_sales) == 220, f"Expected 220 SKUs, got {len(d.sku_has_sales)}"
+          assert len(d.sales) == 10860, f"Expected 10860 sales rows, got {len(d.sales)}"
+          assert d.sales[config.COL_STATUS].isnull().sum() == 0, "Null status after join"
+
+          # Sunday -> Saturday relabel assertion
+          from forecasting.lifecycle import infer_lifecycle
+          from forecasting.densify import densify
+          lc = infer_lifecycle(d.sales, d.master)
+          dense = densify(d.sales, lc, d.joined, week_relabel_shift_days=6)
+          dow = dense.dense[config.COL_TIMESTAMP].dt.dayofweek
+          assert (dow == 5).all(), "Not all timestamps are Saturday after relabel"
+          print("Smoke test passed: scope=220, relabel=Saturday")
+          EOF

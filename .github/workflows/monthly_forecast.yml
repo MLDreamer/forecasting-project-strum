@@ -1,0 +1,146 @@
+name: monthly-forecast
+
+on:
+  schedule:
+    - cron: "0 6 1 * *"     # 06:00 UTC, 1st of every month
+  workflow_dispatch: {}      # "Train now" manual button
+  push:
+    paths:
+      - "data/raw/**"        # re-run automatically when new Excel is pushed
+
+permissions:
+  contents: write            # needed to commit results back to the repo
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    env:
+      KMP_DUPLICATE_LIB_OK: "TRUE"   # suppress OpenMP duplicate-lib warning
+
+    steps:
+      - name: Checkout (with LFS)
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Determine run ID
+        id: run_id
+        run: echo "RUN_ID=$(date +%Y-%m)" >> "$GITHUB_OUTPUT"
+
+      - name: Train pipeline
+        run: |
+          mkdir -p runs/${{ steps.run_id.outputs.RUN_ID }}
+          python -m forecasting.run \
+            --config configs/fontana_candle.yaml \
+            --stop-after forecast \
+            2>&1 | tee runs/${{ steps.run_id.outputs.RUN_ID }}/run.log
+
+      - name: Publish contract tables
+        run: |
+          python - <<'EOF'
+          import os, sys, pickle, warnings, numpy as np, pandas as pd
+          warnings.filterwarnings('ignore')
+          os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
+          sys.path.insert(0, 'src')
+          from forecasting.io import load_all
+          from forecasting.lifecycle import infer_lifecycle
+          from forecasting.densify import densify
+          from forecasting.features import build_features, add_cluster_features, add_hierarchy_features
+          from forecasting.segment import segment_and_cluster
+          from forecasting.hierarchy import build_hierarchy
+          from forecasting.selection import select_winners
+          from forecasting.forecast import generate_forecast
+          from forecasting.publish import publish_tables
+          from forecasting.metrics import revenue_weighted_wape
+          from forecasting import config
+
+          d = load_all()
+          lc = infer_lifecycle(d.sales, d.master)
+          dense = densify(d.sales, lc, d.joined, week_relabel_shift_days=6)
+          feat = build_features(dense.dense, lc)
+          seg = segment_and_cluster(feat.features, lc)
+          df114 = add_hierarchy_features(add_cluster_features(feat.features, seg.segments))
+          hier = build_hierarchy(seg.segments, d.master)
+
+          cv = None
+          cv_path = 'outputs/cv_result.pkl'
+          if __import__('os').path.exists(cv_path):
+              with open(cv_path,'rb') as f: cv = pickle.load(f)
+
+          q_levels = np.array(config.QUANTILES)
+          selection = select_winners(cv, seg.segments, q_levels=q_levels) if cv else select_winners.__wrapped__()
+          artifacts = generate_forecast(
+              full_features=df114, full_dense=dense.dense,
+              selection=selection, segments=seg, hierarchy=hier,
+              q_levels=q_levels, horizon=26, bootstrap_samples=300,
+          )
+
+          # Locked metric
+          price_map = feat.features.groupby('sku_id')['list_price'].last()
+          blended_wape = float('nan')
+          if cv:
+              ts_max = feat.features['timestamp'].max()
+              all_y, all_f, all_p = [], [], []
+              for fold in [2,3,4]:
+                  k = ('seasonal_naive', fold)
+                  if k not in cv.fold_predictions: continue
+                  cutoff = ts_max - pd.Timedelta(weeks=(4-fold+1)*26)
+                  train_c = feat.features[feat.features['timestamp']<=cutoff]
+                  sku_order = cv.sku_order[fold]
+                  actuals = cv.fold_actuals[fold]
+                  n = min(actuals.shape[0], cv.fold_predictions[k].median().shape[0])
+                  preds = cv.fold_predictions[k].median()[:n]
+                  sku_tc = train_c.groupby('sku_id').size()
+                  elig = [i for i,s in enumerate(sku_order[:n]) if sku_tc.get(s,0)>=26]
+                  if not elig: continue
+                  prices = np.array([float(price_map.get(sku_order[i],20.0)) for i in elig])
+                  all_y.append(actuals[elig]); all_f.append(preds[elig]); all_p.append(prices)
+              if all_y:
+                  Y=np.vstack(all_y); F=np.vstack(all_f); P=np.concatenate(all_p)
+                  blended_wape = revenue_weighted_wape(Y, F, P)
+
+          run_id = __import__('os').environ.get('RUN_ID', __import__('time').strftime('%Y-%m'))
+          publish_tables(
+              run_id=run_id, artifacts=artifacts, selection=selection,
+              segments=seg, hierarchy=hier, full_dense=dense.dense,
+              full_features=df114, cv_result=cv, blended_wape=blended_wape,
+          )
+          print(f"Published run {run_id}, blended_wape={blended_wape:.4f}")
+          EOF
+        env:
+          RUN_ID: ${{ steps.run_id.outputs.RUN_ID }}
+          PYTHONPATH: src:.
+
+      - name: Promote on pass
+        run: |
+          python -m forecasting.promote \
+            --run-id ${{ steps.run_id.outputs.RUN_ID }} \
+            --max-wape 0.95 \
+            --runs-dir runs \
+            --latest-dir outputs/latest
+        env:
+          PYTHONPATH: src:.
+
+      - name: Upload run artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: forecast-${{ github.run_id }}
+          path: runs/
+          retention-days: 90
+
+      - name: Commit results to `results` branch
+        run: |
+          git config user.name  "forecast-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add runs/ outputs/latest/ manifest.json runs/index.json || true
+          git diff --cached --quiet || git commit -m "forecast ${{ steps.run_id.outputs.RUN_ID }}"
+          git push origin HEAD:results || echo "No changes to push"

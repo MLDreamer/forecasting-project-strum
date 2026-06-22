@@ -1,0 +1,14 @@
+[
+  {
+    "run_id": "2026-07",
+    "date": "2026-05-23",
+    "blended_wape": 0.7876,
+    "status": "published",
+    "winners": {
+      "smooth": "recent_level",
+      "erratic": "trend_seasonal",
+      "lumpy": "seasonal_naive",
+      "intermittent": "seasonal_naive"
+    }
+  }
+]

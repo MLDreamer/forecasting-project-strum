@@ -1,0 +1,22 @@
+{
+  "run_id": "2026-07-test",
+  "git_sha": "unknown",
+  "forecast_origin": "2026-05-23",
+  "horizon_weeks": 26,
+  "n_sku": 220,
+  "blended_wape": 0.7876,
+  "winners": {
+    "smooth": "recent_level",
+    "erratic": "trend_seasonal",
+    "lumpy": "seasonal_naive",
+    "intermittent": "seasonal_naive"
+  },
+  "input_hashes": {
+    "processed_data_filtered.csv": "dd61e5fc7f08d4cf",
+    "product_item_master.csv": "c7036a78558c207c",
+    "variants_export.csv": "39f148eefe173fdd"
+  },
+  "forecast_cube_hash": "1225df6ddad7d5af",
+  "pipeline_version": "0.1.0",
+  "status": "published"
+}
