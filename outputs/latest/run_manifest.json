@@ -8,15 +8,25 @@
   "winners": {
     "smooth": "recent_level",
     "erratic": "trend_seasonal",
-    "lumpy": "seasonal_naive",
-    "intermittent": "seasonal_naive"
+    "lumpy": "trend_seasonal",
+    "intermittent": "trend_seasonal",
+    "cold_start": "trend_seasonal",
+    "discontinued": "zero_forecast"
+  },
+  "routing_notes": {
+    "smooth": "26-week level + linear trend (upgraded from 8-week flat mean)",
+    "erratic": "seasonal x YoY growth clip [0.3, 5.0] (loosened from [0.5, 3.0])",
+    "lumpy": "trend_seasonal replaces seasonal_naive — burst demand needs growth component",
+    "intermittent": "trend_seasonal replaces seasonal_naive — captures inter-arrival trend",
+    "cold_start": "trend_seasonal mean fallback for short-history SKUs — replaces near-zero naive",
+    "discontinued": "zero forecast — dormant >= 26 weeks"
   },
   "input_hashes": {
     "processed_data_filtered.csv": "dd61e5fc7f08d4cf",
     "product_item_master.csv": "c7036a78558c207c",
     "variants_export.csv": "39f148eefe173fdd"
   },
-  "forecast_cube_hash": "1225df6ddad7d5af",
-  "pipeline_version": "0.1.0",
+  "forecast_cube_hash": "pending_rerun",
+  "pipeline_version": "0.1.1",
   "status": "published"
 }

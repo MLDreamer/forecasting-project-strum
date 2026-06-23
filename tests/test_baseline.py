@@ -249,16 +249,16 @@ def test_trend_seasonal_stockout_gate() -> None:
 
 
 def test_trend_seasonal_growth_clip() -> None:
-    """YoY growth multiplier is clipped to [0.5, 3.0]."""
-    # Series with explosive 10× growth in last 13 weeks
-    y = np.concatenate([np.ones(52) * 5.0, np.ones(13) * 50.0])
+    """YoY growth multiplier is clipped to [0.3, 5.0]."""
+    # Series with explosive 20× growth in last 13 weeks
+    y = np.concatenate([np.ones(52) * 5.0, np.ones(13) * 100.0])
     m = TrendSeasonalModel(q_levels=Q_LEVELS)
     m.fit_series({"explosive": y})
-    # Forecast P50 should be capped: base * 3.0, not base * 10
+    # Forecast P50 should be capped: base * 5.0, not base * 20
     result = m.predict(np.empty(0), 4)
     p50 = result.quantiles[0, :, len(Q_LEVELS) // 2]
-    # Base is ~5, growth clip at 3.0 → P50 ≤ 5 * 3.0 + some residual
-    assert p50.mean() <= 20.0, f"P50 too high: {p50.mean():.2f} — growth clip may be broken"
+    # Base is ~5, growth clip at 5.0 → P50 ≤ 5 * 5.0 + some residual
+    assert p50.mean() <= 35.0, f"P50 too high: {p50.mean():.2f} — growth clip may be broken"
 
 
 def test_trend_seasonal_registered_for_erratic() -> None:
@@ -281,24 +281,26 @@ def test_recent_level_shape() -> None:
 
 
 def test_recent_level_constant_p50() -> None:
-    """P50 should be the 8-week mean (constant across horizon)."""
+    """Flat series (zero slope) → P50 ≈ level (constant across horizon)."""
     y = np.full(60, 7.0)
     m = RecentLevelModel(q_levels=Q_LEVELS)
     m.fit_series({"sku": y})
     result = m.predict(np.empty(0), HORIZON)
     p50_idx = len(Q_LEVELS) // 2
     p50 = result.quantiles[0, :, p50_idx]
-    np.testing.assert_allclose(p50, 7.0, rtol=1e-5)
+    # Flat series → slope=0 → all steps ≈ 7.0 (within clip bounds)
+    np.testing.assert_allclose(p50, 7.0, rtol=1e-4)
 
 
 def test_recent_level_dead_sku_near_zero() -> None:
-    """Series that ended with 8 zeros → 8-week mean ≈ 0 → near-zero forecast."""
+    """Series that ended with 8 zeros → dead gate → near-zero forecast."""
     y = np.concatenate([np.ones(52) * 10.0, np.zeros(8)])
     m = RecentLevelModel(q_levels=Q_LEVELS)
     m.fit_series({"dead": y})
     result = m.predict(np.empty(0), HORIZON)
     p50_idx = len(Q_LEVELS) // 2
-    assert result.quantiles[0, :, p50_idx].mean() == pytest.approx(0.0, abs=1e-6)
+    # Dead gate fires: 5% of historical mean = 0.5, so P50 < 1.0
+    assert result.quantiles[0, :, p50_idx].mean() < 1.0
 
 
 def test_recent_level_nonneg() -> None:

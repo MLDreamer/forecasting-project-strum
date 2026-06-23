@@ -180,7 +180,7 @@ class SeasonalNaive(ForecastModel):
 # ---------------------------------------------------------------------------
 
 
-@register_model("trend_seasonal", segments=["erratic", "smooth"])
+@register_model("trend_seasonal", segments=["erratic", "smooth", "lumpy", "intermittent", "cold_start"])
 class TrendSeasonalModel(ForecastModel):
     """Seasonal naive × clipped YoY growth multiplier.
 
@@ -197,7 +197,7 @@ class TrendSeasonalModel(ForecastModel):
     """
 
     SEASON: int = 52
-    GROWTH_CLIP: tuple[float, float] = (0.5, 3.0)
+    GROWTH_CLIP: tuple[float, float] = (0.3, 5.0)
     MIN_YOY_WEEKS: int = 65  # need at least this for YoY window
 
     def __init__(self, q_levels: np.ndarray | None = None) -> None:
@@ -310,18 +310,18 @@ class TrendSeasonalModel(ForecastModel):
 
 @register_model("recent_level", segments=["smooth"])
 class RecentLevelModel(ForecastModel):
-    """8-week mean as a constant-level forecast.
+    """26-week level + linear trend forecast for smooth SKUs.
 
-    Appropriate for smooth SKUs because:
-    - If the SKU is actively selling: the recent mean is the best stable estimate.
-    - If the SKU has gone silent (stockout / discontinued): the 8-week mean ≈ 0,
-      which is the correct near-zero forecast without needing a separate gate.
+    Uses a 26-week window (vs the old 8-week) so slow-growing SKUs are not
+    systematically underforecast.  A linear trend is fit over the window and
+    projected forward, clipped to [0.5x, 2.0x] of the window mean to prevent
+    runaway extrapolation on short histories.
 
-    Intervals: conformal from the difference between recent 8-week values and
-    their mean (captures the local spread without needing seasonal residuals).
+    Dead-SKU gate: if last 8 weeks are all zero, forecast near-zero (5% of mean).
     """
 
-    LEVEL_WINDOW: int = 8
+    LEVEL_WINDOW: int = 26
+    TREND_CLIP: tuple[float, float] = (0.5, 2.0)  # clip projected level relative to mean
 
     def __init__(self, q_levels: np.ndarray | None = None) -> None:
         super().__init__(q_levels)
@@ -343,11 +343,44 @@ class RecentLevelModel(ForecastModel):
                 self._skipped_skus.add(uid)
                 continue
 
-            window = y[-self.LEVEL_WINDOW :] if len(y) >= self.LEVEL_WINDOW else y
-            level = float(window.mean())
-            residuals = np.abs(window - level)
+            T = len(y)
 
-            self._sku_params[uid] = {"level": level, "residuals": residuals}
+            # Dead-SKU gate
+            dead = T >= 8 and float(y[-8:].sum()) == 0.0
+            if dead:
+                hist_mean = float(y.mean()) if T > 0 else 0.0
+                near_zero = max(0.0, hist_mean * 0.05)
+                self._sku_params[uid] = {
+                    "level": near_zero,
+                    "slope": 0.0,
+                    "residuals": np.array([near_zero]),
+                    "mean": near_zero,
+                }
+                continue
+
+            window = y[-self.LEVEL_WINDOW :] if T >= self.LEVEL_WINDOW else y
+            W = len(window)
+            level = float(window.mean())
+
+            # Linear trend over window via least-squares
+            if W >= 4:
+                t = np.arange(W, dtype=float)
+                t_c = t - t.mean()
+                slope = float(np.dot(t_c, window) / max(np.dot(t_c, t_c), 1e-9))
+            else:
+                slope = 0.0
+
+            # Residuals for conformal intervals (detrended)
+            t = np.arange(W, dtype=float)
+            detrended = window - (slope * (t - t.mean()) + level)
+            residuals = np.abs(detrended)
+
+            self._sku_params[uid] = {
+                "level": level,
+                "slope": slope,
+                "residuals": residuals,
+                "mean": level,
+            }
 
         self._fitted = True
         return self
@@ -367,8 +400,16 @@ class RecentLevelModel(ForecastModel):
 
             params = self._sku_params[uid]
             level = params["level"]
+            slope = params["slope"]
             residuals = params["residuals"]
-            point = np.full(horizon, max(0.0, level))
+            mean_level = params["mean"]
+
+            # Project level + trend, clip to [0.5x, 2.0x] of window mean
+            t_future = np.arange(1, horizon + 1, dtype=float)
+            projected = level + slope * t_future
+            lo = mean_level * self.TREND_CLIP[0]
+            hi = mean_level * self.TREND_CLIP[1]
+            point = np.clip(np.maximum(0.0, projected), lo if lo > 0 else 0.0, max(hi, 0.0))
 
             if len(residuals) == 0:
                 q_cube[i] = point[:, None] * np.ones((1, n_q))

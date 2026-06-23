@@ -45,12 +45,12 @@ _MODEL_CLASS_MAP: dict[str, type] = {}
 #   cold_start   → seasonal_naive (no history; will be Chronos when wired)
 #   discontinued → zero_forecast  (dormant)
 SEGMENT_MODEL_MAP: dict[str, str] = {
-    "erratic": "trend_seasonal",
-    "smooth": "recent_level",
-    "lumpy": "seasonal_naive",
-    "intermittent": "seasonal_naive",
-    "cold_start": "seasonal_naive",
-    "discontinued": "zero_forecast",
+    "erratic": "trend_seasonal",       # seasonal × clipped YoY growth [0.3, 5.0]
+    "smooth": "recent_level",          # 26-week level + linear trend
+    "lumpy": "trend_seasonal",         # burst demand: seasonal × growth beats flat naive
+    "intermittent": "trend_seasonal",  # same — seasonal base with growth captures gaps
+    "cold_start": "trend_seasonal",    # short-history mean fallback inside TrendSeasonal
+    "discontinued": "zero_forecast",   # dormant — always zero
 }
 
 
