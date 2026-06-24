@@ -72,9 +72,9 @@ SELECTION_FOLDS = {2, 3, 4}
 # Per-segment candidate models — V2 8-class routing
 SEG_CANDIDATES = {
     "smooth":          ["theta", "auto_ets", "seasonal_naive", "cluster_lgbm"],
-    "smooth_growing":  ["theta", "trend_seasonal", "auto_ets", "cluster_lgbm"],
+    "smooth_growing":  ["patchtst", "theta", "trend_seasonal", "auto_ets", "cluster_lgbm"],
     "smooth_stable":   ["seasonal_naive", "recent_level", "auto_ets", "cluster_lgbm"],
-    "erratic":         ["theta", "trend_seasonal", "seasonal_naive", "cluster_lgbm", "hurdle"],
+    "erratic":         ["patchtst", "theta", "trend_seasonal", "seasonal_naive", "cluster_lgbm", "hurdle"],
     "promo_driven":    ["cluster_lgbm", "hurdle", "seasonal_naive", "compound_bernoulli"],
     "lumpy":           ["seasonal_naive", "compound_bernoulli", "tsb", "tweedie_glm",
                         "hurdle", "cluster_lgbm"],
@@ -239,6 +239,19 @@ def make_models(lgbm_params: dict, feature_cols: list[str] | None = None,
         print("  [ok] HierarchyBorrowModel loaded")
     except Exception as e:
         print(f"  [warn] HierarchyBorrow skipped: {e}")
+
+    # PatchTST — Transformer for trend extrapolation (erratic/growing SKUs)
+    try:
+        import os; os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+        from forecasting.models.patchtst import PatchTSTModel
+        # Fast config for CV (30 epochs, small model)
+        models["patchtst"] = PatchTSTModel(
+            q_levels=q, epochs=30, d_model=64, n_layers=2,
+            batch_size=32, lr=5e-4
+        )
+        print("  [ok] PatchTST loaded")
+    except Exception as e:
+        print(f"  [warn] PatchTST skipped: {e}")
 
     return models
 
@@ -616,7 +629,7 @@ def main():
         "smooth":          "theta",
         "smooth_growing":  "theta",          # growing SKUs: Theta captures trend
         "smooth_stable":   "seasonal_naive", # stable SKUs: last year is best
-        "erratic":         "theta",          # fold 3 winner: 0.665
+        "erratic":         "patchtst",        # trend extrapolation for erratic ramps
         "promo_driven":    "cluster_lgbm",   # price/promo features critical
         "lumpy":           "seasonal_naive", # fold 2+3 winner: 0.787/0.594
         "intermittent":    "seasonal_naive", # fold 3+4 winner: 0.609/0.672
