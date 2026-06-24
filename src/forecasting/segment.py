@@ -87,9 +87,21 @@ class SegmentResult:
 def _sb_class(
     sales: np.ndarray,
     is_dormant: bool,
+    dormancy_weeks: int = 26,
 ) -> str:
-    """Return Syntetos-Boylan demand class for one SKU."""
-    if is_dormant:
+    """Return Syntetos-Boylan demand class for one SKU.
+
+    Dormancy is checked from the tail of the sales array (the last
+    dormancy_weeks), not from a global lifecycle flag, so the classification
+    is always relative to the most recent data seen (fold origin in CV).
+    """
+    # Recompute dormancy from the actual sales tail — prevents stale flags
+    # from misclassifying reactivated SKUs as discontinued.
+    if len(sales) >= dormancy_weeks:
+        actually_dormant = float(sales[-dormancy_weeks:].sum()) == 0.0
+    else:
+        actually_dormant = is_dormant  # fall back to lifecycle flag for very short series
+    if actually_dormant:
         return "discontinued"
 
     nz_idx = np.where(sales > 0)[0]
@@ -100,10 +112,34 @@ def _sb_class(
     nz_vals = sales[nz_idx]
     cv2 = float((nz_vals.std() / nz_vals.mean()) ** 2) if len(nz_vals) >= 2 else 0.0
 
+    # V2: 8-class segmentation
+    # promo_driven: high discount correlation → LightGBM wins
+    # smooth_growing: smooth + strong YoY growth → Theta
+    # smooth_stable: smooth + flat/slow growth → SeasonalNaive
+    # erratic: true volatility, low promo correlation
+    # lumpy, intermittent: as before
     if idi < _IDI_THRESHOLD and cv2 < _CV2_THRESHOLD:
-        return "smooth"
+        # Smooth family — split by growth
+        nz_vals = sales[sales > 0]
+        if len(nz_vals) >= 26:
+            recent_mean = float(sales[-13:].mean())
+            year_ago_mean = float(sales[-65:-52].mean()) if len(sales) >= 65 else float(sales[:13].mean())
+            yoy = recent_mean / year_ago_mean if year_ago_mean > 1e-6 else 1.0
+            if yoy > 1.20:
+                return "smooth_growing"
+        return "smooth_stable"
+
     if idi < _IDI_THRESHOLD and cv2 >= _CV2_THRESHOLD:
+        # Erratic family — split by promo correlation
+        if len(sales) >= 13:
+            # Use zero_rate as promo proxy: if >40% zeros in recent 13w
+            # but overall selling rate is high, likely promo-driven
+            recent_zeros = float((sales[-13:] == 0).mean())
+            overall_nz = float((sales > 0).mean())
+            if recent_zeros > 0.30 and overall_nz > 0.40:
+                return "promo_driven"
         return "erratic"
+
     if idi >= _IDI_THRESHOLD and cv2 < _CV2_THRESHOLD:
         return "intermittent"
     return "lumpy"

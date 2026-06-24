@@ -290,7 +290,7 @@ class _StatsforecastModel(ForecastModel):
 
 @register_model(
     "auto_ets",
-    segments=["smooth", "erratic"],
+    segments=["smooth", "smooth_stable", "smooth_growing", "erratic"],
 )
 class AutoETSModel(_StatsforecastModel):
     """AutoETS via statsforecast with split-conformal intervals."""
@@ -303,7 +303,7 @@ class AutoETSModel(_StatsforecastModel):
 
 @register_model(
     "auto_arima",
-    segments=["smooth", "erratic"],
+    segments=["smooth", "smooth_stable", "smooth_growing", "erratic"],
 )
 class AutoARIMAModel(_StatsforecastModel):
     """AutoARIMA via statsforecast with split-conformal intervals."""
@@ -316,7 +316,7 @@ class AutoARIMAModel(_StatsforecastModel):
 
 @register_model(
     "theta",
-    segments=["smooth", "erratic", "intermittent"],
+    segments=["smooth", "smooth_stable", "smooth_growing", "erratic", "promo_driven", "intermittent"],
 )
 class ThetaModel(_StatsforecastModel):
     """Dynamic Optimized Theta via statsforecast with split-conformal intervals."""

@@ -14,15 +14,21 @@ from typing import Any
 # Segment type constants (locked, matches SB classification in segment.py)
 # ---------------------------------------------------------------------------
 SEG_SMOOTH = "smooth"
+SEG_SMOOTH_GROWING = "smooth_growing"
+SEG_SMOOTH_STABLE = "smooth_stable"
 SEG_ERRATIC = "erratic"
+SEG_PROMO_DRIVEN = "promo_driven"
 SEG_INTERMITTENT = "intermittent"
 SEG_LUMPY = "lumpy"
 SEG_COLD_START = "cold_start"
 SEG_DISCONTINUED = "discontinued"
 
-ALL_SEGMENTS: frozenset[str] = frozenset(
-    {SEG_SMOOTH, SEG_ERRATIC, SEG_INTERMITTENT, SEG_LUMPY, SEG_COLD_START, SEG_DISCONTINUED}
-)
+ALL_SEGMENTS: frozenset[str] = frozenset({
+    SEG_SMOOTH, SEG_SMOOTH_GROWING, SEG_SMOOTH_STABLE,
+    SEG_ERRATIC, SEG_PROMO_DRIVEN,
+    SEG_INTERMITTENT, SEG_LUMPY,
+    SEG_COLD_START, SEG_DISCONTINUED,
+})
 
 
 # ---------------------------------------------------------------------------

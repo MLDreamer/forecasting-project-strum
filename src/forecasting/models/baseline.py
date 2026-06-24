@@ -67,7 +67,7 @@ class ZeroForecast(ForecastModel):
 # ---------------------------------------------------------------------------
 
 
-@register_model("seasonal_naive", segments=list(ALL_SEGMENTS))
+@register_model("seasonal_naive", segments=list(ALL_SEGMENTS))  # universal fallback
 class SeasonalNaive(ForecastModel):
     """Last-year-same-week point forecast with empirical quantile intervals.
 
@@ -180,7 +180,7 @@ class SeasonalNaive(ForecastModel):
 # ---------------------------------------------------------------------------
 
 
-@register_model("trend_seasonal", segments=["erratic", "smooth", "lumpy", "intermittent", "cold_start"])
+@register_model("trend_seasonal", segments=["erratic", "smooth", "smooth_growing", "smooth_stable", "lumpy", "intermittent", "cold_start", "promo_driven"])
 class TrendSeasonalModel(ForecastModel):
     """Seasonal naive × clipped YoY growth multiplier.
 
@@ -308,7 +308,7 @@ class TrendSeasonalModel(ForecastModel):
 # ---------------------------------------------------------------------------
 
 
-@register_model("recent_level", segments=["smooth"])
+@register_model("recent_level", segments=["smooth", "smooth_stable", "smooth_growing"])
 class RecentLevelModel(ForecastModel):
     """26-week level + linear trend forecast for smooth SKUs.
 

@@ -235,7 +235,7 @@ class _IntermittentSFModel(ForecastModel):
 # ---------------------------------------------------------------------------
 
 
-@register_model("croston_sba", segments=["intermittent"])
+@register_model("croston_sba", segments=["intermittent", "lumpy", "promo_driven"])
 class CrostonSBAModel(_IntermittentSFModel):
     """Croston-SBA with split-conformal prediction intervals."""
 
@@ -306,7 +306,7 @@ def _fit_compound_bernoulli(
     return p, shape, scale
 
 
-@register_model("compound_bernoulli", segments=["intermittent", "lumpy"])
+@register_model("compound_bernoulli", segments=["intermittent", "lumpy", "promo_driven"])
 class CompoundBernoulliModel(ForecastModel):
     """Compound Bernoulli-Gamma bootstrap for intermittent and lumpy demand.
 

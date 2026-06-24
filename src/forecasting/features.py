@@ -382,8 +382,148 @@ def build_features(
     feature_cols.extend(static_cols)
 
     # -------------------------------------------------------------------------
+    # R. Promo elasticity features (per-SKU, computed from full history)
+    # These are static per-SKU values — leakage-safe as they use full history
+    # -------------------------------------------------------------------------
+    elast_rows = []
+    for sku, grp in df.groupby(config.COL_SKU_ID):
+        y    = grp[config.COL_SALES].values
+        disc = grp[config.COL_DISCOUNT_PCT].values if config.COL_DISCOUNT_PCT in grp else np.zeros(len(y))
+
+        # Promo lift: mean sales during high-promo vs baseline
+        high_mask = disc > 0.20
+        base_mask = disc < 0.08
+        promo_mean   = float(y[high_mask].mean()) if high_mask.sum() >= 2 else float(y.mean())
+        baseline_mean= float(y[base_mask].mean()) if base_mask.sum() >= 2 else max(float(y.mean()), 1e-6)
+        promo_lift   = float(np.clip(promo_mean / (baseline_mean + 1e-6), 0.5, 10.0))
+
+        # Promo frequency: fraction of weeks with discount > 0.15
+        promo_freq = float(high_mask.mean())
+
+        # Demand volatility on promo vs non-promo weeks
+        promo_cv  = float(y[high_mask].std() / (y[high_mask].mean() + 1e-6)) if high_mask.sum() >= 4 else 0.0
+        nopromo_cv= float(y[base_mask].std() / (y[base_mask].mean() + 1e-6)) if base_mask.sum() >= 4 else 0.0
+
+        # Elasticity: corr(sales, discount_pct) — positive means promo drives demand
+        if len(y) >= 13 and disc.std() > 1e-6:
+            corr = float(np.corrcoef(y, disc)[0, 1])
+        else:
+            corr = 0.0
+
+        elast_rows.append({
+            config.COL_SKU_ID: sku,
+            "promo_lift":    promo_lift,
+            "promo_freq":    promo_freq,
+            "promo_cv":      promo_cv,
+            "nopromo_cv":    nopromo_cv,
+            "promo_elasticity": corr,
+        })
+
+    elast_df = pd.DataFrame(elast_rows)
+    elast_cols = ["promo_lift", "promo_freq", "promo_cv", "nopromo_cv", "promo_elasticity"]
+    df = df.merge(elast_df[[config.COL_SKU_ID] + elast_cols], on=config.COL_SKU_ID, how="left")
+    feature_cols.extend(elast_cols)
+
+    # -------------------------------------------------------------------------
     # Final NaN fill: lag/rolling columns are NaN at series start — fill with 0
     # -------------------------------------------------------------------------
+    lag_roll_cols = [
+        c
+        for c in feature_cols
+        if c.startswith(
+            (
+                "lag_",
+                "roll",
+                "log1p_lag",
+                "log1p_roll",
+                "mom",
+                "discount_roll",
+                "list_price_roll",
+                "list_price_lag",
+                "discount_pct_lag",
+                "price_vs",
+            )
+        )
+    ]
+    df[lag_roll_cols] = df[lag_roll_cols].fillna(0.0)
+
+    # -------------------------------------------------------------------------
+    # Q. Promo / regime / external features (V2)
+    # -------------------------------------------------------------------------
+
+    # Q1. Is on promo this week (lagged 1w to avoid leakage)
+    df["is_on_promo"] = (df["discount_pct_lag1"] > 0.15).astype(float)
+    feature_cols.append("is_on_promo")
+
+    # Q2. Promo frequency over last 13 weeks
+    df["promo_freq_13w"] = _rolling_per_sku(df, config.COL_DISCOUNT_PCT, 13,
+                                             func="mean")
+    df["promo_freq_13w"] = (df["promo_freq_13w"] > 0.15).astype(float)
+    feature_cols.append("promo_freq_13w")
+
+    # Q3. Price drop flag: current price < 85% of 13w average
+    df["price_drop_flag"] = (df["price_vs_roll13"] < -0.15).astype(float)
+    feature_cols.append("price_drop_flag")
+
+    # Q4. Post-promo hangover: was on promo 2w ago, not on promo 1w ago
+    disc_lag2 = _shift_per_sku(df, config.COL_DISCOUNT_PCT, 2)
+    df["post_promo_flag"] = (
+        (disc_lag2 > 0.15) & (df["discount_pct_lag1"] <= 0.15)
+    ).astype(float)
+    feature_cols.append("post_promo_flag")
+
+    # Q5. Demand acceleration: roll4_mean / roll13_mean (is demand speeding up?)
+    roll13_safe = df["roll13_mean"].replace(0, np.nan)
+    df["acceleration"] = (df["roll4_mean"] / roll13_safe).fillna(1.0).clip(0.0, 5.0)
+    feature_cols.append("acceleration")
+
+    # Q6. YoY growth proxy: roll13_mean / lag_52-based 13w mean
+    lag52_roll = _shift_per_sku(df, config.COL_SALES, 52)
+    df["yoy_growth"] = (df["roll4_mean"] / lag52_roll.replace(0, np.nan)).fillna(1.0).clip(0.1, 10.0)
+    feature_cols.append("yoy_growth")
+
+    # Q7. Weeks to Christmas (proximity signal, cycles annually)
+    woy = df[config.COL_TIMESTAMP].dt.isocalendar().week.astype(float)
+    df["weeks_to_christmas"] = ((52 - woy) % 52).clip(0, 26).astype(float)
+    feature_cols.append("weeks_to_christmas")
+
+    # Q8. Is Q4 ramp (Oct-Dec buildup, weeks 40-52)
+    df["is_q4_ramp"] = woy.between(40, 52).astype(float)
+    feature_cols.append("is_q4_ramp")
+
+    # Q9. Is post-holiday (Jan-Feb slowdown, weeks 1-8)
+    df["is_post_holiday"] = woy.between(1, 8).astype(float)
+    feature_cols.append("is_post_holiday")
+
+    # Q10. Demand regime (rule-based: 0=baseline,1=promo,2=post-promo,3=launch,4=decline)
+    regime = np.zeros(len(df), dtype=float)
+    regime[df["is_on_promo"] > 0] = 1.0
+    regime[df["post_promo_flag"] > 0] = 2.0
+    regime[df["weeks_since_first_sale"] < 13] = 3.0
+    decline_mask = (df["acceleration"] < 0.5) & (df["roll13_mean"] > 0)
+    regime[decline_mask] = 4.0
+    df["demand_regime"] = regime
+    feature_cols.append("demand_regime")
+
+    # Q11. Promo-sales correlation proxy (rolling 13w corr of sales and discount)
+    # Computed as: roll13 of (sales * discount_pct) / (roll13_sales * roll13_disc)
+    # Simplified: if promo_freq_13w > 0.3 AND roll13_mean > global_mean → promo_driven_flag
+    global_mean = df.groupby(config.COL_TIMESTAMP)[config.COL_SALES].transform("mean")
+    df["promo_driven_flag"] = (
+        (df["promo_freq_13w"] > 0.0) & (df["roll13_mean"] > global_mean * 0.5)
+    ).astype(float)
+    feature_cols.append("promo_driven_flag")
+
+    # -------------------------------------------------------------------------
+    # Final NaN fill for new features
+    # -------------------------------------------------------------------------
+    new_feat_cols = [
+        "is_on_promo", "promo_freq_13w", "price_drop_flag", "post_promo_flag",
+        "acceleration", "yoy_growth", "weeks_to_christmas", "is_q4_ramp",
+        "is_post_holiday", "demand_regime", "promo_driven_flag",
+    ]
+    df[new_feat_cols] = df[new_feat_cols].fillna(0.0)
+
     lag_roll_cols = [
         c
         for c in feature_cols

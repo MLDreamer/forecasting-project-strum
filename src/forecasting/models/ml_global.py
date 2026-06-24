@@ -195,7 +195,8 @@ def build_training_rows(
 
 @register_model(
     "cluster_lgbm",
-    segments=["smooth", "erratic", "intermittent", "lumpy", "cold_start"],
+    segments=["smooth", "smooth_stable", "smooth_growing", "erratic", "promo_driven",
+              "intermittent", "lumpy", "cold_start"],
 )
 class ClusterPooledLGBM(ForecastModel):
     """Cluster-pooled LightGBM with 19 quantile boosters × 8 clusters = 152 boosters.

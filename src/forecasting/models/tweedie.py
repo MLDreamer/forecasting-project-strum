@@ -180,7 +180,7 @@ class _TweedieSKUFit:
 # ---------------------------------------------------------------------------
 
 
-@register_model("tweedie_glm", segments=["lumpy"])
+@register_model("tweedie_glm", segments=["lumpy", "intermittent", "promo_driven"])
 class TweedieGLM(ForecastModel):
     """Per-SKU Tweedie GLM with compound Poisson-Gamma simulation.
 
