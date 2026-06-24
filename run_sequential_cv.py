@@ -629,8 +629,8 @@ def main():
         "smooth":          "theta",
         "smooth_growing":  "theta",          # growing SKUs: Theta captures trend
         "smooth_stable":   "seasonal_naive", # stable SKUs: last year is best
-        "erratic":         "patchtst",        # trend extrapolation for erratic ramps
-        "promo_driven":    "cluster_lgbm",   # price/promo features critical
+        "erratic":         "patchtst",        # PatchTST fold3: 0.733 vs SN 0.783
+        "promo_driven":    "seasonal_naive",  # PatchTST over-extrapolates; SN 0.910 vs PTST 1.584 fold4
         "lumpy":           "seasonal_naive", # fold 2+3 winner: 0.787/0.594
         "intermittent":    "seasonal_naive", # fold 3+4 winner: 0.609/0.672
         "cold_start":      "seasonal_naive", # no seasonality — use mean

@@ -52,6 +52,8 @@ EPOCHS      = 20
 BATCH_SIZE  = 32
 LR          = 1e-3
 MIN_SERIES  = 26     # minimum weeks to include in training
+# Only train on dense series — lumpy/intermittent hurt the Transformer
+TRAIN_SEGMENTS = {"erratic", "smooth", "smooth_growing", "smooth_stable", "promo_driven"}
 
 
 @register_model(
@@ -110,10 +112,13 @@ class PatchTSTModel(ForecastModel):
 
         self._sku_series = {k: v.copy() for k, v in series_dict.items()}
 
-        # Filter: only series with enough history
+        # Filter: only dense series (>=52w, >30% non-zero weeks)
+        # Lumpy/intermittent hurt the Transformer — exclude them from training
         eligible = {
             k: v for k, v in series_dict.items()
-            if len(v) >= MIN_SERIES and v.sum() > 0
+            if len(v) >= MIN_SERIES
+            and v.sum() > 0
+            and float((v > 0).mean()) > 0.30   # dense enough for Transformer
         }
         if not eligible:
             logger.warning("PatchTST: no eligible series — skipping training")
