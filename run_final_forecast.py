@@ -124,26 +124,38 @@ def main():
         else:
             g = 1.0
 
+        # Growth scaling: use 26w rolling growth rate
+        # Best params from grid search: erratic clip=(0.5,2.0), lumpy=(0.7,1.3)
+        if T >= 52:
+            rc26 = y[-26:].mean() * 26
+            ya26 = y[-52:-26].mean() * 26
+            g26  = rc26 / max(ya26, 1e-6)
+        else:
+            g26 = 1.0
+
         if seg in ("erratic", "smooth_growing"):
-            # 50% PatchTST + 50% SN (PatchTST captures growth trends)
-            ptst = ptst_p50.get(sku, sn)
-            p50  = np.maximum(0, 0.5 * ptst + 0.5 * sn)
+            # PatchTST blended with growth-scaled SN
+            ptst    = ptst_p50.get(sku, sn)
+            g_clip  = float(np.clip(g26, 0.5, 2.0))
+            sn_g    = np.maximum(0, sn * g_clip)
+            p50     = np.maximum(0, 0.5 * ptst + 0.5 * sn_g)
             ptst_lo = ptst_p10.get(sku, sn * 0.6)
             ptst_hi = ptst_p90.get(sku, sn * 1.5)
-            p10  = np.maximum(0, 0.5 * ptst_lo + 0.5 * sn * 0.7)
-            p90  = 0.5 * ptst_hi + 0.5 * sn * 1.4
+            p10     = np.maximum(0, 0.5 * ptst_lo + 0.5 * sn_g * 0.65)
+            p90     = 0.5 * ptst_hi + 0.5 * sn_g * 1.45
 
         elif seg == "smooth_stable":
-            # SN with slight YoY growth
-            p50 = np.maximum(0, sn * min(g, 1.5))
-            p10 = np.maximum(0, p50 * 0.7)
-            p90 = p50 * 1.4
+            g_clip = float(np.clip(g26, 0.5, 2.0))
+            p50 = np.maximum(0, sn * g_clip)
+            p10 = np.maximum(0, p50 * 0.65)
+            p90 = p50 * 1.45
 
         elif seg == "lumpy":
-            # Pure SeasonalNaive (best for lumpy)
-            p50 = sn
-            p10 = np.maximum(0, sn * 0.5)
-            p90 = sn * 1.8
+            # Conservative growth clip for lumpy (bursty not trending)
+            g_clip = float(np.clip(g26, 0.7, 1.3))
+            p50 = np.maximum(0, sn * g_clip)
+            p10 = np.maximum(0, sn * 0.4)
+            p90 = sn * 2.0
 
         elif seg == "intermittent":
             p50 = sn
@@ -151,7 +163,6 @@ def main():
             p90 = sn * 1.6
 
         elif seg == "promo_driven":
-            # SN is safest for promo_driven (PatchTST over-extrapolates)
             p50 = sn
             p10 = np.maximum(0, sn * 0.5)
             p90 = sn * 2.0
