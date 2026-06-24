@@ -1,0 +1,23 @@
+=== SEQUENTIAL LEARNING LOG V2 — 8-class + hurdle + hierarchy ===
+
+--- Fold 1 learnings ---
+  routing[smooth]: theta -> seasonal_naive  (WAPE inf)
+  routing[erratic]: theta -> seasonal_naive  (WAPE 0.6186)
+  routing[lumpy]: seasonal_naive -> tweedie_glm  (WAPE 0.6324)
+  routing[intermittent]: seasonal_naive -> cluster_lgbm  (WAPE 0.6648)
+  LGBM: LightGBM won (wape=0.8190). Increase regularisation slightly.
+
+--- Fold 2 learnings ---
+  routing[erratic]: seasonal_naive -> cluster_lgbm  (WAPE 0.6620)
+  routing[lumpy]: tweedie_glm -> seasonal_naive  (WAPE 0.7867)
+  routing[intermittent]: cluster_lgbm -> hurdle  (WAPE 0.7715)
+  LGBM: num_leaves 63->94, lr 0.05->0.035  (lgbm_wape=0.8372 > sn_wape=0.7647)
+
+--- Fold 3 learnings ---
+  routing[erratic]: cluster_lgbm -> theta  (WAPE 0.6651)
+  routing[intermittent]: hurdle -> seasonal_naive  (WAPE 0.6089)
+  LGBM: num_leaves 94->127, lr 0.035->0.0245  (lgbm_wape=0.7531 > sn_wape=0.7002)
+
+--- Fold 4 learnings ---
+  routing[erratic]: theta -> trend_seasonal  (WAPE 0.5884)
+  LGBM: num_leaves 127->127, lr 0.0245->0.0171  (lgbm_wape=0.8604 > sn_wape=0.7031)

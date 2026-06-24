@@ -25,6 +25,21 @@ htmlcov/
 # Heavy pickle — store as GitHub release asset if needed
 outputs/cv_result.pkl
 
+# Auto-generated run outputs (not committed — too large)
+outputs/automl_run_*/
+
+# Intermediate experiment outputs (superseded by strum_results/)
+outputs/best_ensemble/
+outputs/cv_forecast/
+outputs/forecast_run/
+outputs/sequential_cv/
+outputs/sequential_cv_v3.log
+outputs/cv_result.pkl
+
+# Experiment scripts (superseded by automl.py)
+run_forecast.py
+run_cv_and_forecast.py
+
 # IDE
 .vscode/
 .idea/
